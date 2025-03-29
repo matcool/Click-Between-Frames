@@ -9,13 +9,23 @@
 #include <Geode/modify/EndLevelLayer.hpp>
 #include <Geode/modify/CreatorLayer.hpp>
 #include <Geode/modify/GJGameLevel.hpp>
+#include <Geode/modify/CCDirector.hpp>
 
 typedef void (*wine_get_host_version)(const char **sysname, const char **release);
 
 constexpr double SMALLEST_FLOAT = std::numeric_limits<float>::min();
 
-constexpr InputEvent EMPTY_INPUT = InputEvent{ 0, 0, PlayerButton::Jump, 0, 0 };
-constexpr Step EMPTY_STEP = Step{ EMPTY_INPUT, 1.0, true };
+constexpr InputEvent EMPTY_INPUT = InputEvent {
+	.time = 0,
+	.inputType = PlayerButton::Jump,
+	.inputState = false, 
+	.isPlayer1 = false, 
+};
+constexpr Step EMPTY_STEP = Step {
+	.input = EMPTY_INPUT,
+	.deltaFactor = 1.0,
+	.endStep = true,
+};
 
 std::queue<struct InputEvent> inputQueueCopy;
 std::queue<struct Step> stepQueue;
@@ -24,11 +34,8 @@ std::atomic<bool> softToggle;
 
 InputEvent nextInput = EMPTY_INPUT;
 
-LARGE_INTEGER lastFrameTime;
-LARGE_INTEGER currentFrameTime;
-
-HANDLE hSharedMem = NULL;
-HANDLE hMutex = NULL;
+TimestampType lastFrameTime;
+TimestampType currentFrameTime;
 
 bool firstFrame = true; // necessary to prevent accidental inputs at the start of the level or when unpausing
 bool skipUpdate = true; // true -> dont split steps during PlayerObject::update()
@@ -47,19 +54,22 @@ void buildStepQueue(int stepCount) {
 	stepQueue = {}; // shouldnt be necessary, but just in case
 
 	if (linuxNative) {
+	#ifdef GEODE_IS_WINDOWS
 		GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime); // used instead of QPC to make it possible to convert between linux and windows timestamps
 		linuxCheckInputs();
+	#endif
 	}
 	else {
 		std::lock_guard lock(inputQueueLock);
 
 		if (lateCutoff) { // copy all inputs in queue, use current time as the frame boundary
-			QueryPerformanceCounter(&currentFrameTime);
+			// QueryPerformanceCounter(&currentFrameTime);
+			currentFrameTime = getCurrentTimestamp();
 			inputQueueCopy = inputQueue;
 			inputQueue = {};
 		}
 		else { // only copy inputs that happened before the start of the frame
-			while (!inputQueue.empty() && inputQueue.front().time.QuadPart <= currentFrameTime.QuadPart) {
+			while (!inputQueue.empty() && inputQueue.front().time <= currentFrameTime) {
 				inputQueueCopy.push(inputQueue.front());
 				inputQueue.pop();
 			}
@@ -75,10 +85,10 @@ void buildStepQueue(int stepCount) {
 		return;
 	}
 
-	LARGE_INTEGER deltaTime;
-	LARGE_INTEGER stepDelta;
-	deltaTime.QuadPart = currentFrameTime.QuadPart - lastFrameTime.QuadPart;
-	stepDelta.QuadPart = (deltaTime.QuadPart / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
+	TimestampType deltaTime;
+	TimestampType stepDelta;
+	deltaTime = currentFrameTime - lastFrameTime;
+	stepDelta = (deltaTime / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
 
 	for (int i = 0; i < stepCount; i++) { // for each physics step of the frame
 		double elapsedTime = 0.0;
@@ -88,8 +98,8 @@ void buildStepQueue(int stepCount) {
 			if (!empty) front = inputQueueCopy.front();
 			else break; // no more inputs this frame
 
-			if (front.time.QuadPart - lastFrameTime.QuadPart < stepDelta.QuadPart * (i + 1)) { // if the first input in the queue happened on the current step
-				double inputTime = static_cast<double>((front.time.QuadPart - lastFrameTime.QuadPart) % stepDelta.QuadPart) / stepDelta.QuadPart; // proportion of step elapsed at the time the input was made
+			if (front.time - lastFrameTime < stepDelta * (i + 1)) { // if the first input in the queue happened on the current step
+				double inputTime = static_cast<double>((front.time - lastFrameTime) % stepDelta) / stepDelta; // proportion of step elapsed at the time the input was made
 				stepQueue.emplace(Step{ front, std::clamp(inputTime - elapsedTime, SMALLEST_FLOAT, 1.0), false });
 				inputQueueCopy.pop();
 				elapsedTime = inputTime;
@@ -114,7 +124,7 @@ Step popStepQueue() {
 	Step front = stepQueue.front();
 	double deltaFactor = front.deltaFactor;
 
-	if (nextInput.time.QuadPart != 0) {
+	if (nextInput.time != 0) {
 		PlayLayer* playLayer = PlayLayer::get();
 
 		enableInput = true;
@@ -165,12 +175,25 @@ void updateKeybinds() {
 "decompiled" version of PlayerObject::resetCollisionLog() since it's inlined in GD 2.2074 on Windows
 */
 void decomp_resetCollisionLog(PlayerObject* p) {
-	(*(CCDictionary**)((char*)p + 0x5b0))->removeAllObjects();
-	(*(CCDictionary**)((char*)p + 0x5b8))->removeAllObjects();
-	(*(CCDictionary**)((char*)p + 0x5c0))->removeAllObjects();
-	(*(CCDictionary**)((char*)p + 0x5c8))->removeAllObjects();
-	*(unsigned long*)((char*)p + 0x5e0) = *(unsigned long*)((char*)p + 0x5d0);
-	*(long long*)((char*)p + 0x5d0) = -1;
+	p->m_collisionLogTop->removeAllObjects();
+    p->m_collisionLogBottom->removeAllObjects();
+    p->m_collisionLogLeft->removeAllObjects();
+    p->m_collisionLogRight->removeAllObjects();
+	// this looks wrong
+	p->m_lastCollisionLeft = p->m_lastCollisionBottom;
+	// its probably this instead
+	// p->m_lastCollisionLeft = -1;
+	// p->m_lastCollisionRight = -1;
+
+	p->m_lastCollisionBottom = -1;
+	p->m_lastCollisionTop = -1;
+
+	// (*(CCDictionary**)((char*)p + 0x5b0))->removeAllObjects();
+	// (*(CCDictionary**)((char*)p + 0x5b8))->removeAllObjects();
+	// (*(CCDictionary**)((char*)p + 0x5c0))->removeAllObjects();
+	// (*(CCDictionary**)((char*)p + 0x5c8))->removeAllObjects();
+	// *(unsigned long*)((char*)p + 0x5e0) = *(unsigned long*)((char*)p + 0x5d0);
+	// *(long long*)((char*)p + 0x5d0) = -1;
 }
 
 double averageDelta = 0.0;
@@ -236,15 +259,20 @@ class $modify(PlayLayer) {
 
 bool mouseFix;
 
+#ifdef GEODE_IS_WINDOWS
 class $modify(CCEGLView) {
 	void pollEvents() {
 		PlayLayer* playLayer = PlayLayer::get();
 		CCNode* par;
 
-		if (!lateCutoff && !linuxNative) QueryPerformanceCounter(&currentFrameTime);
+		if (!lateCutoff && !linuxNative) {
+			currentFrameTime = getCurrentTimestamp();
+		}
 
 		if (softToggle.load() // CBF disabled
+		#ifdef GEODE_IS_WINDOWS
 			|| !GetFocus() // GD is minimized
+		#endif
 			|| !playLayer // not in level
 			|| !(par = playLayer->getParent()) // must be a real playLayer with a parent (for compatibility with mods that use a fake playLayer)
 			|| (par->getChildByType<PauseLayer>(0)) // if paused
@@ -261,6 +289,7 @@ class $modify(CCEGLView) {
 				inputQueue = {};
 			}
 		}
+		#ifdef GEODE_IS_WINDOWS
 		if (mouseFix && !skipUpdate) { // reduce lag with high polling rate mice by limiting the number of mouse movements per frame to 1
 			MSG msg;
 			int index = 1;
@@ -271,12 +300,46 @@ class $modify(CCEGLView) {
 				else index++;
 			}
 		}
+		#endif
 
 		CCEGLView::pollEvents();
 	}
 };
+#else
+class $modify(CCDirector) {
+	void drawScene() {
+		PlayLayer* playLayer = PlayLayer::get();
+		CCNode* par;
 
-UINT32 stepCount;
+		if (!lateCutoff && !linuxNative) {
+			currentFrameTime = getCurrentTimestamp();
+		}
+
+		if (softToggle.load() // CBF disabled
+			|| !playLayer // not in level
+			|| !(par = playLayer->getParent()) // must be a real playLayer with a parent (for compatibility with mods that use a fake playLayer)
+			|| (par->getChildByType<PauseLayer>(0)) // if paused
+			|| (playLayer->getChildByType<EndLevelLayer>(0))) // if on endscreen
+		{
+			firstFrame = true;
+			skipUpdate = true;
+			enableInput = true;
+
+			inputQueueCopy = {};
+
+			if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on windows memory leaks are possible
+				std::lock_guard lock(inputQueueLock);
+				inputQueue = {};
+			}
+		}
+
+		CCDirector::drawScene();
+	}
+};
+#endif
+
+
+int stepCount;
 
 class $modify(GJBaseGameLayer) {
 	static void onModify(auto& self) {
@@ -314,8 +377,8 @@ class $modify(GJBaseGameLayer) {
 	}
 };
 
-CCPoint p1Pos = { NULL, NULL };
-CCPoint p2Pos = { NULL, NULL };
+CCPoint p1Pos = { 0.f, 0.f };
+CCPoint p2Pos = { 0.f, 0.f };
 
 float rotationDelta;
 bool midStep = false;
@@ -410,7 +473,7 @@ class $modify(PlayerObject) {
 
 			if (p1Pos.x && !midStep) { // ==true only at the end of a step that an input happened on
 				this->m_lastPosition = p1Pos; // move triggers & spider get confused without this (iirc)
-				p1Pos.setPoint(NULL, NULL);
+				p1Pos.setPoint(0.f, 0.f);
 			}
 		}
 		else if (!skipUpdate && pl && this == pl->m_player2) {
@@ -418,7 +481,7 @@ class $modify(PlayerObject) {
 
 			if (p2Pos.x && !midStep) {
 				pl->m_player2->m_lastPosition = p2Pos;
-				p2Pos.setPoint(NULL, NULL);
+				p2Pos.setPoint(0.f, 0.f);
 			}
 		}
 		else PlayerObject::updateRotation(t);
@@ -452,39 +515,6 @@ class $modify(EndLevelLayer) {
 	}
 };
 
-LPVOID pBuf;
-
-/*
-notify the player if theres an issue with input on Linux
-*/
-class $modify(CreatorLayer) {
-	bool init() {
-		if (!CreatorLayer::init()) return false;
-
-		DWORD waitResult = WaitForSingleObject(hMutex, 5);
-		if (waitResult == WAIT_OBJECT_0) {
-			if (static_cast<LinuxInputEvent*>(pBuf)[0].type == 3 && !softToggle.load()) {
-				log::error("Linux input failed");
-				FLAlertLayer* popup = FLAlertLayer::create(
-					"CBF Linux", 
-					"Failed to read input devices.\nOn most distributions, this can be resolved with the following command: <cr>sudo usermod -aG input $USER</c> (reboot afterward; this will make your system slightly less secure).\nIf the issue persists, please contact the mod developer.", 
-					"OK"
-				);
-				popup->m_scene = this;
-				popup->show();
-			}
-			ReleaseMutex(hMutex);
-		}
-		else if (waitResult == WAIT_TIMEOUT) {
-			log::error("Mutex stalling");
-		}
-		else {
-			log::error("CreatorLayer WaitForSingleObject failed: {}", GetLastError());
-		}
-		return true;
-	} 
-};
-
 /*
 dont submit to leaderboards for rated levels
 */
@@ -500,9 +530,10 @@ class $modify(GJGameLevel) {
 	}
 };
 
-Patch* pbPatch;
+Patch* pbPatch = nullptr;
 
 void togglePhysicsBypass(bool enable) {
+#ifdef GEODE_IS_WINDOWS
 	void* addr = reinterpret_cast<void*>(geode::base::get() + 0x2322ca);
 	DWORD oldProtect;
 	DWORD newProtect = 0x40;
@@ -525,11 +556,13 @@ void togglePhysicsBypass(bool enable) {
 	VirtualProtect(addr, 4, oldProtect, &newProtect);
 
 	actualDelta = enable;
+#endif
 }
 
 Patch* modPatch;
 
 void toggleMod(bool disable) {
+#ifdef GEODE_IS_WINDOWS
 	void* addr = reinterpret_cast<void*>(geode::base::get() + 0x5ec8e8);
 	DWORD oldProtect;
 	DWORD newProtect = 0x40;
@@ -542,11 +575,11 @@ void toggleMod(bool disable) {
 	else modPatch->enable();
 	
 	VirtualProtect(addr, 4, oldProtect, &newProtect);
+#endif
 
 	softToggle.store(disable);
 }
 
-HANDLE gdMutex;
 
 $on_mod(Loaded) {
 	Mod::get()->setSavedValue<bool>("is-linux", false);
@@ -579,6 +612,7 @@ $on_mod(Loaded) {
 
 	threadPriority = Mod::get()->getSettingValue<bool>("thread-priority");
 
+#ifdef GEODE_IS_WINDOWS
 	HMODULE ntdll = GetModuleHandle("ntdll.dll");
 	wine_get_host_version wghv = (wine_get_host_version)GetProcAddress(ntdll, "wine_get_host_version");
 	if (wghv) { // if this function exists, the user is on Wine
@@ -648,4 +682,5 @@ $on_mod(Loaded) {
 	if (!linuxNative) {
 		std::thread(inputThread).detach();
 	}
+#endif
 }

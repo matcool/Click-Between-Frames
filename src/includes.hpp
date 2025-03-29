@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <queue>
 #include <mutex>
 
@@ -8,6 +7,14 @@
 #include <geode.custom-keybinds/include/Keybinds.hpp>
 
 using namespace geode::prelude;
+
+#include "platform.hpp"
+
+#if defined(GEODE_IS_WINDOWS)
+#include "windows.hpp"
+#elif defined(GEODE_IS_ANDROID)
+#include "android.hpp"
+#endif
 
 enum GameAction : int {
 	p1Jump = 0,
@@ -23,15 +30,8 @@ enum State : bool {
 	Press = 1
 };
 
-struct __attribute__((packed)) LinuxInputEvent {
-	LARGE_INTEGER time;
-	USHORT type;
-	USHORT code;
-	int value;
-};
-
 struct InputEvent {
-	LARGE_INTEGER time;
+	TimestampType time;
 	PlayerButton inputType;
 	bool inputState;
 	bool isPlayer1;
@@ -43,15 +43,11 @@ struct Step {
 	bool endStep;
 };
 
-extern HANDLE hSharedMem;
-extern HANDLE hMutex;
-extern LPVOID pBuf;
-
 extern std::queue<struct InputEvent> inputQueue;
 extern std::queue<struct InputEvent> inputQueueCopy;
 
 extern std::array<std::unordered_set<size_t>, 6> inputBinds;
-extern std::unordered_set<USHORT> heldInputs;
+extern std::unordered_set<uint16_t> heldInputs;
 
 extern std::mutex inputQueueLock;
 extern std::mutex keybindsLock;
