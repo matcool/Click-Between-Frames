@@ -2,6 +2,14 @@
 
 #ifdef GEODE_IS_WINDOWS
 
+#include <Geode/modify/CreatorLayer.hpp>
+
+TimestampType getCurrentTimestamp() {
+	LARGE_INTEGER t;
+	QueryPerformanceCounter(&t);
+	return t.QuadPart;
+}
+
 LPVOID pBuf;
 HANDLE hSharedMem = NULL;
 HANDLE hMutex = NULL;
@@ -99,7 +107,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
 	{
 		std::lock_guard lock(inputQueueLock);
-		inputQueue.emplace(InputEvent{ time, inputType, inputState, player1 });
+		inputQueue.emplace_back(InputEvent{ timestampFromLarge(time), inputType, inputState, player1 });
 	}
 
 	return 0;
@@ -146,5 +154,38 @@ void inputThread() {
 		}
 	}
 }
+
+/*
+notify the player if theres an issue with input on Linux
+*/
+class $modify(CreatorLayer) {
+	bool init() {
+		if (!CreatorLayer::init()) return false;
+
+		if (linuxNative) {
+			DWORD waitResult = WaitForSingleObject(hMutex, 5);
+			if (waitResult == WAIT_OBJECT_0) {
+				if (static_cast<LinuxInputEvent*>(pBuf)[0].type == 3 && !softToggle.load()) {
+					log::error("Linux input failed");
+					FLAlertLayer* popup = FLAlertLayer::create(
+						"CBF Linux", 
+						"Failed to read input devices.\nOn most distributions, this can be resolved with the following command: <cr>sudo usermod -aG input $USER</c> (reboot afterward; this will make your system slightly less secure).\nIf the issue persists, please contact the mod developer.", 
+						"OK"
+					);
+					popup->m_scene = this;
+					popup->show();
+				}
+				ReleaseMutex(hMutex);
+			}
+			else if (waitResult == WAIT_TIMEOUT) {
+				log::error("Mutex stalling");
+			}
+			else {
+				// log::error("CreatorLayer WaitForSingleObject failed: {}", GetLastError());
+			}
+		}
+		return true;
+	} 
+};
 
 #endif

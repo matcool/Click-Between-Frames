@@ -43,8 +43,8 @@ struct Step {
 	bool endStep;
 };
 
-extern std::queue<struct InputEvent> inputQueue;
-extern std::queue<struct InputEvent> inputQueueCopy;
+extern std::deque<struct InputEvent> inputQueue;
+extern std::deque<struct InputEvent> inputQueueCopy;
 
 extern std::array<std::unordered_set<size_t>, 6> inputBinds;
 extern std::unordered_set<uint16_t> heldInputs;
@@ -61,3 +61,5 @@ constexpr size_t BUFFER_SIZE = 20;
 
 void linuxCheckInputs();
 void inputThread();
+
+void debugLog(std::source_location = std::source_location::current());

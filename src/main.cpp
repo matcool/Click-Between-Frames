@@ -9,7 +9,7 @@
 #include <Geode/modify/EndLevelLayer.hpp>
 #include <Geode/modify/CreatorLayer.hpp>
 #include <Geode/modify/GJGameLevel.hpp>
-#include <Geode/modify/CCDirector.hpp>
+#include <Geode/modify/CCDisplayLinkDirector.hpp>
 
 typedef void (*wine_get_host_version)(const char **sysname, const char **release);
 
@@ -27,8 +27,9 @@ constexpr Step EMPTY_STEP = Step {
 	.endStep = true,
 };
 
-std::queue<struct InputEvent> inputQueueCopy;
-std::queue<struct Step> stepQueue;
+std::deque<struct InputEvent> inputQueue;
+std::deque<struct InputEvent> inputQueueCopy;
+std::deque<struct Step> stepQueue;
 
 std::atomic<bool> softToggle;
 
@@ -42,6 +43,16 @@ bool skipUpdate = true; // true -> dont split steps during PlayerObject::update(
 bool enableInput = false;
 bool linuxNative = false;
 bool lateCutoff; // false -> ignore inputs that happen after the start of the frame; true -> check for inputs at the latest possible moment
+
+
+std::array<std::unordered_set<size_t>, 6> inputBinds;
+std::unordered_set<uint16_t> heldInputs;
+
+std::mutex inputQueueLock;
+std::mutex keybindsLock;
+
+std::atomic<bool> enableRightClick;
+bool threadPriority;
 
 /*
 this function copies over the inputQueue from the input thread and uses it to build a queue of physics steps
@@ -70,8 +81,8 @@ void buildStepQueue(int stepCount) {
 		}
 		else { // only copy inputs that happened before the start of the frame
 			while (!inputQueue.empty() && inputQueue.front().time <= currentFrameTime) {
-				inputQueueCopy.push(inputQueue.front());
-				inputQueue.pop();
+				inputQueueCopy.push_back(inputQueue.front());
+				inputQueue.pop_front();
 			}
 		}
 	}
@@ -100,14 +111,14 @@ void buildStepQueue(int stepCount) {
 
 			if (front.time - lastFrameTime < stepDelta * (i + 1)) { // if the first input in the queue happened on the current step
 				double inputTime = static_cast<double>((front.time - lastFrameTime) % stepDelta) / stepDelta; // proportion of step elapsed at the time the input was made
-				stepQueue.emplace(Step{ front, std::clamp(inputTime - elapsedTime, SMALLEST_FLOAT, 1.0), false });
-				inputQueueCopy.pop();
+				stepQueue.emplace_back(Step{ front, std::clamp(inputTime - elapsedTime, SMALLEST_FLOAT, 1.0), false });
+				inputQueueCopy.pop_front();
 				elapsedTime = inputTime;
 			}
 			else break; // no more inputs this step, more later in the frame
 		}
 
-		stepQueue.emplace(Step{ EMPTY_INPUT, std::max(SMALLEST_FLOAT, 1.0 - elapsedTime), true });
+		stepQueue.emplace_back(Step{ EMPTY_INPUT, std::max(SMALLEST_FLOAT, 1.0 - elapsedTime), true });
 	}
 
 	lastFrameTime = currentFrameTime;
@@ -133,7 +144,7 @@ Step popStepQueue() {
 	}
 
 	nextInput = front.input;
-	stepQueue.pop();
+	stepQueue.pop_front();
 
 	return front;
 }
@@ -259,81 +270,62 @@ class $modify(PlayLayer) {
 
 bool mouseFix;
 
+void pollEventsIdk() {
+	PlayLayer* playLayer = PlayLayer::get();
+	CCNode* par;
+
+	if (!lateCutoff && !linuxNative) {
+		currentFrameTime = getCurrentTimestamp();
+	}
+
+	if (softToggle.load() // CBF disabled
+	#ifdef GEODE_IS_WINDOWS
+		|| !GetFocus() // GD is minimized
+	#endif
+		|| !playLayer // not in level
+		|| !(par = playLayer->getParent()) // must be a real playLayer with a parent (for compatibility with mods that use a fake playLayer)
+		|| (par->getChildByType<PauseLayer>(0)) // if paused
+		|| (playLayer->getChildByType<EndLevelLayer>(0))) // if on endscreen
+	{
+		firstFrame = true;
+		skipUpdate = true;
+		enableInput = true;
+
+		inputQueueCopy = {};
+
+		if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on windows memory leaks are possible
+			std::lock_guard lock(inputQueueLock);
+			inputQueue = {};
+		}
+	}
+	#ifdef GEODE_IS_WINDOWS
+	if (mouseFix && !skipUpdate) { // reduce lag with high polling rate mice by limiting the number of mouse movements per frame to 1
+		MSG msg;
+		int index = 1;
+		while (PeekMessage(&msg, NULL, WM_MOUSEFIRST + index, WM_MOUSELAST, PM_NOREMOVE)) { // check for mouse inputs in the queue
+			if (msg.message == WM_MOUSEMOVE || msg.message == WM_NCMOUSEMOVE) {
+				PeekMessage(&msg, NULL, WM_MOUSEFIRST + index, WM_MOUSELAST, PM_REMOVE); // remove mouse movements from queue
+			}
+			else index++;
+		}
+	}
+	#endif
+}
+
 #ifdef GEODE_IS_WINDOWS
 class $modify(CCEGLView) {
 	void pollEvents() {
-		PlayLayer* playLayer = PlayLayer::get();
-		CCNode* par;
-
-		if (!lateCutoff && !linuxNative) {
-			currentFrameTime = getCurrentTimestamp();
-		}
-
-		if (softToggle.load() // CBF disabled
-		#ifdef GEODE_IS_WINDOWS
-			|| !GetFocus() // GD is minimized
-		#endif
-			|| !playLayer // not in level
-			|| !(par = playLayer->getParent()) // must be a real playLayer with a parent (for compatibility with mods that use a fake playLayer)
-			|| (par->getChildByType<PauseLayer>(0)) // if paused
-			|| (playLayer->getChildByType<EndLevelLayer>(0))) // if on endscreen
-		{
-			firstFrame = true;
-			skipUpdate = true;
-			enableInput = true;
-
-			inputQueueCopy = {};
-
-			if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on windows memory leaks are possible
-				std::lock_guard lock(inputQueueLock);
-				inputQueue = {};
-			}
-		}
-		#ifdef GEODE_IS_WINDOWS
-		if (mouseFix && !skipUpdate) { // reduce lag with high polling rate mice by limiting the number of mouse movements per frame to 1
-			MSG msg;
-			int index = 1;
-			while (PeekMessage(&msg, NULL, WM_MOUSEFIRST + index, WM_MOUSELAST, PM_NOREMOVE)) { // check for mouse inputs in the queue
-				if (msg.message == WM_MOUSEMOVE || msg.message == WM_NCMOUSEMOVE) {
-					PeekMessage(&msg, NULL, WM_MOUSEFIRST + index, WM_MOUSELAST, PM_REMOVE); // remove mouse movements from queue
-				}
-				else index++;
-			}
-		}
-		#endif
+		pollEventsIdk();
 
 		CCEGLView::pollEvents();
 	}
 };
 #else
-class $modify(CCDirector) {
-	void drawScene() {
-		PlayLayer* playLayer = PlayLayer::get();
-		CCNode* par;
+class $modify(CCDisplayLinkDirector) {
+	void mainLoop() {
+		pollEventsIdk();
 
-		if (!lateCutoff && !linuxNative) {
-			currentFrameTime = getCurrentTimestamp();
-		}
-
-		if (softToggle.load() // CBF disabled
-			|| !playLayer // not in level
-			|| !(par = playLayer->getParent()) // must be a real playLayer with a parent (for compatibility with mods that use a fake playLayer)
-			|| (par->getChildByType<PauseLayer>(0)) // if paused
-			|| (playLayer->getChildByType<EndLevelLayer>(0))) // if on endscreen
-		{
-			firstFrame = true;
-			skipUpdate = true;
-			enableInput = true;
-
-			inputQueueCopy = {};
-
-			if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on windows memory leaks are possible
-				std::lock_guard lock(inputQueueLock);
-				inputQueue = {};
-			}
-		}
-
-		CCDirector::drawScene();
+		CCDisplayLinkDirector::mainLoop();
 	}
 };
 #endif
@@ -343,8 +335,8 @@ int stepCount;
 
 class $modify(GJBaseGameLayer) {
 	static void onModify(auto& self) {
-		self.setHookPriority("GJBaseGameLayer::handleButton", Priority::VeryEarly);
-		self.setHookPriority("GJBaseGameLayer::getModifiedDelta", Priority::VeryEarly);
+		(void) self.setHookPriority("GJBaseGameLayer::handleButton", Priority::VeryEarly);
+		(void) self.setHookPriority("GJBaseGameLayer::getModifiedDelta", Priority::VeryEarly);
 	}
 
 	// disable regular inputs while CBF is active
@@ -373,6 +365,8 @@ class $modify(GJBaseGameLayer) {
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
 		
+		debugLog();
+
 		return modifiedDelta;
 	}
 };
@@ -422,6 +416,8 @@ class $modify(PlayerObject) {
 		Step step;
 		bool firstLoop = true;
 		midStep = true;
+
+		debugLog();
 
 		do {
 			step = popStepQueue();
@@ -542,7 +538,7 @@ void togglePhysicsBypass(bool enable) {
 
 	if (!pbPatch) {
 		geode::ByteVector bytes = { 0x48, 0xb9, 0, 0, 0, 0, 0, 0, 0, 0, 0x44, 0x8b, 0x19 }; // could be 1 instruction if i was less lazy
-		UINT32* stepAddr = &stepCount;
+		int* stepAddr = &stepCount;
 		for (int i = 0; i < 8; i++) { // for each byte in stepAddr
 			bytes[i + 2] = ((char*)&stepAddr)[i]; // replace the zeroes with the address of stepCount
 		}
@@ -612,7 +608,12 @@ $on_mod(Loaded) {
 
 	threadPriority = Mod::get()->getSettingValue<bool>("thread-priority");
 
+	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::trunc);
+	file.close();
+
 #ifdef GEODE_IS_WINDOWS
+	HANDLE gdMutex;
+
 	HMODULE ntdll = GetModuleHandle("ntdll.dll");
 	wine_get_host_version wghv = (wine_get_host_version)GetProcAddress(ntdll, "wine_get_host_version");
 	if (wghv) { // if this function exists, the user is on Wine
@@ -683,4 +684,37 @@ $on_mod(Loaded) {
 		std::thread(inputThread).detach();
 	}
 #endif
+}
+
+std::string format_as(InputEvent const& ipt) {
+	return fmt::format("Input(t={},s={},ty={},p1={})", ipt.time, ipt.inputState, int(ipt.inputType), ipt.isPlayer1);
+}
+
+std::string format_as(Step const& step) {
+	return fmt::format("Step(f={},e={},ipt={})", step.deltaFactor, step.endStep, step.input);
+}
+
+void debugLog(std::source_location location) {
+	auto queueElements = [](auto const& q) {
+		std::vector<std::string> result;
+		for (auto const& elem : q) {
+			result.push_back(fmt::format(" - {}", elem));
+		}
+		return result;
+	};
+	std::lock_guard lock(inputQueueLock);
+
+	auto str = fmt::format("CBFDBG {} @ {}:{}\n"
+		"current timestamp = {}\n"
+		"inputQueue = {} elements:\n{}\n"
+		"inputQueueCopy = {} elements:\n{}\n"
+		"stepQueue = {} elements:\n{}\n"
+		, location.function_name(), std::filesystem::path(location.file_name()).filename().string(), location.line()
+		, getCurrentTimestamp()
+		, inputQueue.size(), fmt::join(queueElements(inputQueue), "\n")
+		, inputQueueCopy.size(), fmt::join(queueElements(inputQueueCopy), "\n")
+		, stepQueue.size(), fmt::join(queueElements(stepQueue), "\n")
+	);
+	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
+	file << str;
 }

@@ -1,16 +1,5 @@
 #include "includes.hpp"
 
-std::queue<struct InputEvent> inputQueue;
-
-std::array<std::unordered_set<size_t>, 6> inputBinds;
-std::unordered_set<uint16_t> heldInputs;
-
-std::mutex inputQueueLock;
-std::mutex keybindsLock;
-
-std::atomic<bool> enableRightClick;
-bool threadPriority;
-
 #ifdef GEODE_IS_WINDOWS
 void linuxCheckInputs() {
     DWORD waitResult = WaitForSingleObject(hMutex, 1);
@@ -46,10 +35,10 @@ void linuxCheckInputs() {
 			}
 
             input.inputState = !events[i].value;
-			input.time = events[i].time;
+			input.time = timestampFromLarge(events[i].time);
             input.isPlayer1 = player1;
                 
-            inputQueueCopy.emplace(input);
+            inputQueueCopy.emplace_back(input);
         }
 		ZeroMemory(events, sizeof(LinuxInputEvent[BUFFER_SIZE]));
         ReleaseMutex(hMutex);
