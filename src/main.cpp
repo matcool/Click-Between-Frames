@@ -18,8 +18,8 @@ constexpr double SMALLEST_FLOAT = std::numeric_limits<float>::min();
 constexpr InputEvent EMPTY_INPUT = InputEvent {
 	.time = 0,
 	.inputType = PlayerButton::Jump,
-	.inputState = false, 
-	.isPlayer1 = false, 
+	.inputState = false,
+	.isPlayer1 = false,
 };
 constexpr Step EMPTY_STEP = Step {
 	.input = EMPTY_INPUT,
@@ -96,12 +96,12 @@ void buildStepQueue(int stepCount) {
 		return;
 	}
 
-	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
 
 	TimestampType deltaTime = currentFrameTime - lastFrameTime;
 	TimestampType stepDelta = (deltaTime / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
 
-	file << fmt::format("[buildstepqueue] deltaTime={}  stepDelta={}  currentFrameTime={}  lastFrameTime={}  stepCount={}", deltaTime, stepDelta, currentFrameTime, lastFrameTime, stepCount) << "\n";
+	// std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
+	// file << fmt::format("[buildstepqueue] deltaTime={}  stepDelta={}  currentFrameTime={}  lastFrameTime={}  stepCount={}", deltaTime, stepDelta, currentFrameTime, lastFrameTime, stepCount) << "\n";
 
 	for (int i = 0; i < stepCount; i++) { // for each physics step of the frame
 		double elapsedTime = 0.0;
@@ -212,7 +212,7 @@ bool legacyBypass;
 bool actualDelta;
 
 /*
-determine the number of physics steps that happen on each frame, 
+determine the number of physics steps that happen on each frame,
 need to rewrite the vanilla formula bc otherwise you'd have to use inline assembly to get the step count
 */
 int calculateStepCount(float delta, float timewarp, bool forceVanilla) {
@@ -226,13 +226,13 @@ int calculateStepCount(float delta, float timewarp, bool forceVanilla) {
 		double animationInterval = CCDirector::sharedDirector()->getAnimationInterval();
 		averageDelta = (0.05 * delta) + (0.95 * averageDelta); // exponential moving average to detect lag/external fps caps
 		if (averageDelta > animationInterval * 10) averageDelta = animationInterval * 10; // dont let averageDelta get too high
-		
+
 		bool laggingOneFrame = animationInterval < delta - (1.0 / 240.0); // more than 1 step of lag on a single frame
 		bool laggingManyFrames = averageDelta - animationInterval > 0.0005; // average lag is >0.5ms
-		
+
 		if (!laggingOneFrame && !laggingManyFrames) { // no stepcount variance when not lagging
 			return std::round(std::ceil((animationInterval * 240.0) - 0.0001) / std::min(1.0f, timewarp));
-		} 
+		}
 		else if (!laggingOneFrame) { // consistently low fps
 			return std::round(std::ceil(averageDelta * 240.0) / std::min(1.0f, timewarp));
 		}
@@ -353,7 +353,7 @@ class $modify(GJBaseGameLayer) {
 		if (pl) {
 			const float timewarp = pl->m_gameState.m_timeWarp;
 			if (actualDelta) modifiedDelta = CCDirector::sharedDirector()->getActualDeltaTime() * timewarp;
-			
+
 			stepCount = calculateStepCount(modifiedDelta, timewarp, false);
 
 			if (pl->m_player1->m_isDead || GameManager::sharedState()->getEditorLayer()) {
@@ -369,7 +369,7 @@ class $modify(GJBaseGameLayer) {
 			}
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
-		
+
 		debugLog();
 
 		return modifiedDelta;
@@ -387,8 +387,8 @@ class $modify(PlayerObject) {
 	void update(float stepDelta) {
 		PlayLayer* pl = PlayLayer::get();
 
-		if (skipUpdate 
-			|| !pl 
+		if (skipUpdate
+			|| !pl
 			|| !(this == pl->m_player1 || this == pl->m_player2)) // for compatibility with mods like Globed
 		{
 			PlayerObject::update(stepDelta);
@@ -538,7 +538,7 @@ void togglePhysicsBypass(bool enable) {
 	void* addr = reinterpret_cast<void*>(geode::base::get() + 0x2322ca);
 	DWORD oldProtect;
 	DWORD newProtect = 0x40;
-	
+
 	VirtualProtect(addr, 4, newProtect, &oldProtect);
 
 	if (!pbPatch) {
@@ -553,7 +553,7 @@ void togglePhysicsBypass(bool enable) {
 
 	if (enable) pbPatch->enable();
 	else pbPatch->disable();
-	
+
 	VirtualProtect(addr, 4, oldProtect, &newProtect);
 
 	actualDelta = enable;
@@ -567,14 +567,14 @@ void toggleMod(bool disable) {
 	void* addr = reinterpret_cast<void*>(geode::base::get() + 0x5ec8e8);
 	DWORD oldProtect;
 	DWORD newProtect = 0x40;
-	
+
 	VirtualProtect(addr, 4, newProtect, &oldProtect);
 
 	if (!modPatch) modPatch = Mod::get()->patch(addr, { 0x29, 0x5c, 0x4f, 0x3f }).unwrap();
 
 	if (disable) modPatch->disable();
 	else modPatch->enable();
-	
+
 	VirtualProtect(addr, 4, oldProtect, &newProtect);
 #endif
 
@@ -717,6 +717,6 @@ void debugLog(std::source_location location) {
 		, inputQueueCopy.size(), fmt::join(queueElements(inputQueueCopy), "\n")
 		, stepQueue.size(), fmt::join(queueElements(stepQueue), "\n")
 	);
-	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
-	file << str;
+	// std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
+	// file << str;
 }
