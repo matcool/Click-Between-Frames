@@ -39,14 +39,13 @@ bool reportPlatformCapability(std::string id) {
 TimestampType g_lastTimestamp;
 
 void JNICALL JNI_setNextInputTimestamp(JNIEnv* env, jobject, jlong timestamp) {
-	auto timestampMs = timestamp / 1'000'000;
-	g_lastTimestamp = timestampMs;
+	g_lastTimestamp = timestamp / 1'000;
 }
 
 TimestampType getCurrentTimestamp() {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (now.tv_sec * 1000) + (now.tv_nsec / 1'000'000);
+	return (now.tv_sec * 1'000'000) + (now.tv_nsec / 1'000);
 }
 
 #include <Geode/modify/CCTouchDispatcher.hpp>

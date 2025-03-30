@@ -1,5 +1,5 @@
 #pragma once
 
-using TimestampType = uint64_t;
+using TimestampType = int64_t;
 
 TimestampType getCurrentTimestamp();

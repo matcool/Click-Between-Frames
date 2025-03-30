@@ -96,18 +96,17 @@ void buildStepQueue(int stepCount) {
 		return;
 	}
 
-	TimestampType deltaTime;
-	TimestampType stepDelta;
-	deltaTime = currentFrameTime - lastFrameTime;
-	stepDelta = (deltaTime / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
+	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
+
+	TimestampType deltaTime = currentFrameTime - lastFrameTime;
+	TimestampType stepDelta = (deltaTime / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
+
+	file << fmt::format("[buildstepqueue] deltaTime={}  stepDelta={}  currentFrameTime={}  lastFrameTime={}  stepCount={}", deltaTime, stepDelta, currentFrameTime, lastFrameTime, stepCount) << "\n";
 
 	for (int i = 0; i < stepCount; i++) { // for each physics step of the frame
 		double elapsedTime = 0.0;
-		while (true) { // while loop to account for multiple inputs on the same step
-			InputEvent front;
-			bool empty = inputQueueCopy.empty();
-			if (!empty) front = inputQueueCopy.front();
-			else break; // no more inputs this frame
+		while (!inputQueueCopy.empty()) { // while loop to account for multiple inputs on the same step
+			InputEvent front = inputQueueCopy.front();
 
 			if (front.time - lastFrameTime < stepDelta * (i + 1)) { // if the first input in the queue happened on the current step
 				double inputTime = static_cast<double>((front.time - lastFrameTime) % stepDelta) / stepDelta; // proportion of step elapsed at the time the input was made
@@ -249,6 +248,8 @@ class $modify(PlayLayer) {
 	// update keybinds when you enter a level
 	bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
 		updateKeybinds();
+		std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::trunc);
+		file.close();
 		return PlayLayer::init(level, useReplay, dontCreateObjects);
 	}
 
@@ -362,6 +363,10 @@ class $modify(GJBaseGameLayer) {
 			}
 			else if (modifiedDelta > 0.0) buildStepQueue(stepCount);
 			else skipUpdate = true;
+
+			if (std::fabs(modifiedDelta) < 0.00001) {
+				log::debug("modified delta = {}", modifiedDelta);
+			}
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
 		
@@ -607,9 +612,6 @@ $on_mod(Loaded) {
 	});
 
 	threadPriority = Mod::get()->getSettingValue<bool>("thread-priority");
-
-	std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::trunc);
-	file.close();
 
 #ifdef GEODE_IS_WINDOWS
 	HANDLE gdMutex;
