@@ -9,7 +9,6 @@
 #include <Geode/modify/EndLevelLayer.hpp>
 #include <Geode/modify/CreatorLayer.hpp>
 #include <Geode/modify/GJGameLevel.hpp>
-#include <Geode/modify/CCDisplayLinkDirector.hpp>
 
 typedef void (*wine_get_host_version)(const char **sysname, const char **release);
 
@@ -322,13 +321,25 @@ class $modify(CCEGLView) {
 	}
 };
 #else
-class $modify(CCDisplayLinkDirector) {
-	void mainLoop() {
-		pollEventsIdk();
+void (*mainLoop)(CCDirector*);
+void mainLoopHook(CCDirector* self) {
+	pollEventsIdk();
+	mainLoop(self);
+}
 
-		CCDisplayLinkDirector::mainLoop();
+$execute {
+	auto handle = dlopen("libcocos2dcpp.so", RTLD_LAZY | RTLD_NOLOAD);
+	mainLoop = reinterpret_cast<decltype(mainLoop)>(dlsym(handle, "_ZN7cocos2d21CCDisplayLinkDirector8mainLoopEv"));
+	if (mainLoop != nullptr) {
+		(void) Mod::get()->hook(
+			reinterpret_cast<void*>(mainLoop),
+			&mainLoopHook,
+			"CCDisplayLinkDirector::mainLoop"
+		);
+	} else {
+		log::error("Failed to hook a very important function! this is bad");
 	}
-};
+}
 #endif
 
 
@@ -365,7 +376,7 @@ class $modify(GJBaseGameLayer) {
 			else skipUpdate = true;
 
 			if (std::fabs(modifiedDelta) < 0.00001) {
-				log::debug("modified delta = {}", modifiedDelta);
+				log::error("modified delta = {}", modifiedDelta);
 			}
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
