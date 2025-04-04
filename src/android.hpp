@@ -4,4 +4,6 @@
 
 #ifdef GEODE_IS_ANDROID
 
+extern TimestampType pendingInputTimestamp;
+
 #endif

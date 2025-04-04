@@ -10,12 +10,6 @@ using namespace geode::prelude;
 
 #include "platform.hpp"
 
-#if defined(GEODE_IS_WINDOWS)
-#include "windows.hpp"
-#elif defined(GEODE_IS_ANDROID)
-#include "android.hpp"
-#endif
-
 enum GameAction : int {
 	p1Jump = 0,
 	p1Left = 1,

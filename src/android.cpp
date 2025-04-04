@@ -7,8 +7,6 @@
 
 using namespace geode::prelude;
 
-
-
 void clearJNIExceptions() {
 	auto vm = cocos2d::JniHelper::getJavaVM();
 
@@ -37,6 +35,7 @@ bool reportPlatformCapability(std::string id) {
 }
 
 TimestampType g_lastTimestamp;
+TimestampType pendingInputTimestamp = 0;
 
 void JNICALL JNI_setNextInputTimestamp(JNIEnv* env, jobject, jlong timestamp) {
 	g_lastTimestamp = timestamp / 1'000;
@@ -51,16 +50,13 @@ TimestampType getCurrentTimestamp() {
 #include <Geode/modify/CCTouchDispatcher.hpp>
 class $modify(CCTouchDispatcher) {
 	void touches(cocos2d::CCSet* touches, cocos2d::CCEvent* event, unsigned int index) {
-		CCTouchDispatcher::touches(touches, event, index);
-
 		if (index == CCTOUCHBEGAN || index == CCTOUCHENDED) {
-			auto state = index == CCTOUCHBEGAN ? State::Press : State::Release;
-			// log::debug("input timestamp is {}, current timestamp is {}, diff {}", g_lastTimestamp, getCurrentTimestamp(), std::abs(long(g_lastTimestamp - getCurrentTimestamp())));
-            std::lock_guard lock(inputQueueLock);
-		    inputQueue.emplace_back(InputEvent{ g_lastTimestamp, PlayerButton::Jump, state, true });
-			// debugLog();
+			// used in GJBaseGameLayer::queueButton hook
+			pendingInputTimestamp = g_lastTimestamp;
 			g_lastTimestamp = 0;
 		}
+		CCTouchDispatcher::touches(touches, event, index);
+		pendingInputTimestamp = 0;
 	}
 };
 

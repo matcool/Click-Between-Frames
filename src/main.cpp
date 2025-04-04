@@ -356,6 +356,22 @@ class $modify(GJBaseGameLayer) {
 		if (enableInput) GJBaseGameLayer::handleButton(down, button, isPlayer1);
 	}
 
+#if defined(GEODE_IS_ANDROID)
+	void queueButton(int button, bool push, bool isPlayer2) {
+		if (!softToggle.load() && pendingInputTimestamp) {
+			std::lock_guard lock(inputQueueLock);
+			inputQueue.emplace_back(InputEvent {
+				.time = pendingInputTimestamp,
+				.inputType = PlayerButton(button),
+				.inputState = push ? State::Press : State::Release,
+				.isPlayer1 = !isPlayer2
+			});
+		}
+
+		GJBaseGameLayer::queueButton(button, push, isPlayer2);
+	}
+#endif
+
 	// either use the modified delta to calculate the step count, or use the actual delta if physics bypass is enabled
 	float getModifiedDelta(float delta) {
 		float modifiedDelta = GJBaseGameLayer::getModifiedDelta(delta);
@@ -708,6 +724,7 @@ std::string format_as(Step const& step) {
 }
 
 void debugLog(std::source_location location) {
+	return;
 	auto queueElements = [](auto const& q) {
 		std::vector<std::string> result;
 		for (auto const& elem : q) {
