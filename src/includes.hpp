@@ -4,7 +4,9 @@
 #include <mutex>
 
 #include <Geode/Geode.hpp>
+#ifndef GEODE_IS_IOS
 #include <geode.custom-keybinds/include/Keybinds.hpp>
+#endif
 
 using namespace geode::prelude;
 

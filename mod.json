@@ -15,7 +15,8 @@
 		{
 			"id": "geode.custom-keybinds",
 			"version": ">=v1.10.0",
-			"importance": "required"
+			"importance": "required",
+			"platforms": ["win", "android", "mac"]
 		}
 	],
 	"tags": [
@@ -104,7 +105,7 @@
 	},
 	"resources": {
 		"files": [
-			"resources/linux-input.exe.so"
+			"resources/linux-input.so"
 		]
 	}
 }

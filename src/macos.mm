@@ -1,7 +1,12 @@
 // copied from https://github.com/qimiko/click-on-steps/blob/main/src/macos.mm
 
+#include <Geode/platform/cplatform.h>
 #define CommentType CommentTypeDummy
+#ifdef GEODE_IS_IOS
+#import <UIKit/UIKit.h>
+#else
 #import <Cocoa/Cocoa.h>
+#endif
 #include <objc/runtime.h>
 #undef CommentType
 
@@ -17,7 +22,7 @@ TimestampType getCurrentTimestamp() {
 	return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1'000'000;
 }
 
-@interface EAGLView : NSOpenGLView
+@interface EAGLView : GEODE_MACOS(NSOpenGLView) GEODE_IOS(UIView)
 @end
 
 struct TimestampSetter {
@@ -75,7 +80,7 @@ void mouseUpExec(EAGLView* self, SEL sel, NSEvent* event) {
 
 #ifdef GEODE_IS_IOS
 static IMP touchesBeganOIMP;
-void touchesBegan(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
+void touchesBegan(EAGLView* self, SEL sel, NSSet* touches, UIEvent* event) {
 	auto timestamp = static_cast<std::uint64_t>([event timestamp] * 1000.0);
 	SET_TIMESTAMP(timestamp);
 
@@ -83,7 +88,7 @@ void touchesBegan(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
 }
 
 static IMP touchesMovedOIMP;
-void touchesMoved(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
+void touchesMoved(EAGLView* self, SEL sel, NSSet* touches, UIEvent* event) {
 	auto timestamp = static_cast<std::uint64_t>([event timestamp] * 1000.0);
 	SET_TIMESTAMP(timestamp);
 
@@ -91,7 +96,7 @@ void touchesMoved(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
 }
 
 static IMP touchesEndedOIMP;
-void touchesEnded(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
+void touchesEnded(EAGLView* self, SEL sel, NSSet* touches, UIEvent* event) {
 	auto timestamp = static_cast<std::uint64_t>([event timestamp] * 1000.0);
 	SET_TIMESTAMP(timestamp);
 
@@ -99,7 +104,7 @@ void touchesEnded(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
 }
 
 static IMP touchesCancelledOIMP;
-void touchesCancelled(EAGLView* self, SEL sel, NSSet* touches, NSEvent* event) {
+void touchesCancelled(EAGLView* self, SEL sel, NSSet* touches, UIEvent* event) {
 	auto timestamp = static_cast<std::uint64_t>([event timestamp] * 1000.0);
 	SET_TIMESTAMP(timestamp);
 
