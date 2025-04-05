@@ -2,8 +2,6 @@
 
 #include <Geode/Geode.hpp>
 
-#ifdef GEODE_IS_WINDOWS
-
 struct __attribute__((packed)) LinuxInputEvent {
 	LARGE_INTEGER time;
 	USHORT type;
@@ -27,4 +25,7 @@ inline TimestampType timestampFromLarge(LARGE_INTEGER l) {
 	return l.QuadPart;
 }
 
-#endif
+constexpr size_t BUFFER_SIZE = 20;
+
+void linuxCheckInputs();
+void inputThread();

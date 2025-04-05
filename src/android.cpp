@@ -34,11 +34,11 @@ bool reportPlatformCapability(std::string id) {
 	return false;
 }
 
-TimestampType g_lastTimestamp;
+TimestampType lastTimestamp;
 TimestampType pendingInputTimestamp = 0;
 
 void JNICALL JNI_setNextInputTimestamp(JNIEnv* env, jobject, jlong timestamp) {
-	g_lastTimestamp = timestamp / 1'000;
+	lastTimestamp = timestamp / 1'000;
 }
 
 TimestampType getCurrentTimestamp() {
@@ -52,11 +52,28 @@ class $modify(CCTouchDispatcher) {
 	void touches(cocos2d::CCSet* touches, cocos2d::CCEvent* event, unsigned int index) {
 		if (index == CCTOUCHBEGAN || index == CCTOUCHENDED) {
 			// used in GJBaseGameLayer::queueButton hook
-			pendingInputTimestamp = g_lastTimestamp;
-			g_lastTimestamp = 0;
+			pendingInputTimestamp = lastTimestamp;
+			lastTimestamp = 0;
 		}
 		CCTouchDispatcher::touches(touches, event, index);
 		pendingInputTimestamp = 0;
+	}
+};
+
+#include <Geode/modify/GJBaseGameLayer.hpp>
+class $modify(GJBaseGameLayer) {
+	void queueButton(int button, bool push, bool isPlayer2) {
+		if (!softToggle.load() && pendingInputTimestamp) {
+			std::lock_guard lock(inputQueueLock);
+			inputQueue.emplace_back(InputEvent {
+				.time = pendingInputTimestamp,
+				.inputType = PlayerButton(button),
+				.inputState = push ? State::Press : State::Release,
+				.isPlayer1 = !isPlayer2
+			});
+		}
+
+		GJBaseGameLayer::queueButton(button, push, isPlayer2);
 	}
 };
 

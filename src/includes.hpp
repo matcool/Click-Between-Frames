@@ -8,7 +8,8 @@
 
 using namespace geode::prelude;
 
-#include "platform.hpp"
+using TimestampType = int64_t;
+TimestampType getCurrentTimestamp();
 
 enum GameAction : int {
 	p1Jump = 0,
@@ -47,13 +48,14 @@ extern std::mutex inputQueueLock;
 extern std::mutex keybindsLock;
 
 extern std::atomic<bool> enableRightClick;
+// true -> cbf disabled, confusing i know
 extern std::atomic<bool> softToggle;
 
 extern bool threadPriority;
 
-constexpr size_t BUFFER_SIZE = 20;
-
-void linuxCheckInputs();
-void inputThread();
-
-void debugLog(std::source_location = std::source_location::current());
+#if defined(GEODE_IS_WINDOWS)
+// some windows only global variables
+#include "windows.hpp"
+#elif defined(GEODE_IS_ANDROID)
+extern TimestampType pendingInputTimestamp;
+#endif

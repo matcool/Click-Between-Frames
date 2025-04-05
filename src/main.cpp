@@ -356,22 +356,6 @@ class $modify(GJBaseGameLayer) {
 		if (enableInput) GJBaseGameLayer::handleButton(down, button, isPlayer1);
 	}
 
-#if defined(GEODE_IS_ANDROID)
-	void queueButton(int button, bool push, bool isPlayer2) {
-		if (!softToggle.load() && pendingInputTimestamp) {
-			std::lock_guard lock(inputQueueLock);
-			inputQueue.emplace_back(InputEvent {
-				.time = pendingInputTimestamp,
-				.inputType = PlayerButton(button),
-				.inputState = push ? State::Press : State::Release,
-				.isPlayer1 = !isPlayer2
-			});
-		}
-
-		GJBaseGameLayer::queueButton(button, push, isPlayer2);
-	}
-#endif
-
 	// either use the modified delta to calculate the step count, or use the actual delta if physics bypass is enabled
 	float getModifiedDelta(float delta) {
 		float modifiedDelta = GJBaseGameLayer::getModifiedDelta(delta);
@@ -396,8 +380,6 @@ class $modify(GJBaseGameLayer) {
 			}
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
-
-		debugLog();
 
 		return modifiedDelta;
 	}
@@ -448,8 +430,6 @@ class $modify(PlayerObject) {
 		Step step;
 		bool firstLoop = true;
 		midStep = true;
-
-		debugLog();
 
 		do {
 			step = popStepQueue();
@@ -713,38 +693,4 @@ $on_mod(Loaded) {
 		std::thread(inputThread).detach();
 	}
 #endif
-}
-
-std::string format_as(InputEvent const& ipt) {
-	return fmt::format("Input(t={},s={},ty={},p1={})", ipt.time, ipt.inputState, int(ipt.inputType), ipt.isPlayer1);
-}
-
-std::string format_as(Step const& step) {
-	return fmt::format("Step(f={},e={},ipt={})", step.deltaFactor, step.endStep, step.input);
-}
-
-void debugLog(std::source_location location) {
-	return;
-	auto queueElements = [](auto const& q) {
-		std::vector<std::string> result;
-		for (auto const& elem : q) {
-			result.push_back(fmt::format(" - {}", elem));
-		}
-		return result;
-	};
-	std::lock_guard lock(inputQueueLock);
-
-	auto str = fmt::format("CBFDBG {} @ {}:{}\n"
-		"current timestamp = {}\n"
-		"inputQueue = {} elements:\n{}\n"
-		"inputQueueCopy = {} elements:\n{}\n"
-		"stepQueue = {} elements:\n{}\n"
-		, location.function_name(), std::filesystem::path(location.file_name()).filename().string(), location.line()
-		, getCurrentTimestamp()
-		, inputQueue.size(), fmt::join(queueElements(inputQueue), "\n")
-		, inputQueueCopy.size(), fmt::join(queueElements(inputQueueCopy), "\n")
-		, stepQueue.size(), fmt::join(queueElements(stepQueue), "\n")
-	);
-	// std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
-	// file << str;
 }

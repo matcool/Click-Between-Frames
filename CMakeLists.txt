@@ -11,7 +11,7 @@ add_library(${PROJECT_NAME} SHARED
 )
 
 if (WIN32)
-    target_sources(${PROJECT_NAME} PRIVATE src/windows.cpp src/input.cpp)
+    target_sources(${PROJECT_NAME} PRIVATE src/windows.cpp)
 else()
     target_sources(${PROJECT_NAME} PRIVATE src/android.cpp)
 endif()
