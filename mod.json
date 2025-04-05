@@ -104,7 +104,7 @@
 	},
 	"resources": {
 		"files": [
-			"resources/linux-input.exe.so"
+			"resources/linux-input.so"
 		]
 	}
 }

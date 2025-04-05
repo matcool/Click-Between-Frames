@@ -56,33 +56,35 @@ bool threadPriority;
 /*
 this function copies over the inputQueue from the input thread and uses it to build a queue of physics steps
 based on when each input happened relative to the start of the frame
-(and also calculates the associated deltaTime multipliers for each step)
+(and also calculates the associated stepDelta multipliers for each step)
 */
 void buildStepQueue(int stepCount) {
 	PlayLayer* playLayer = PlayLayer::get();
 	nextInput = EMPTY_INPUT;
 	stepQueue = {}; // shouldnt be necessary, but just in case
 
-	if (linuxNative) {
-	#ifdef GEODE_IS_WINDOWS
-		GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime); // used instead of QPC to make it possible to convert between linux and windows timestamps
-		linuxCheckInputs();
-	#endif
-	}
-	else {
-		std::lock_guard lock(inputQueueLock);
-
-		if (lateCutoff) { // copy all inputs in queue, use current time as the frame boundary
-			// QueryPerformanceCounter(&currentFrameTime);
-			currentFrameTime = getCurrentTimestamp();
-			inputQueueCopy = inputQueue;
-			inputQueue = {};
+	if (lateCutoff) { // copy all inputs in queue, use current time as the frame boundary
+		if (linuxNative) {
+			#ifdef GEODE_IS_WINDOWS
+			GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime); // used instead of QPC to make it possible to convert between Linux and Windows timestamps
+			linuxCheckInputs();
+			#endif
 		}
-		else { // only copy inputs that happened before the start of the frame
-			while (!inputQueue.empty() && inputQueue.front().time <= currentFrameTime) {
-				inputQueueCopy.push_back(inputQueue.front());
-				inputQueue.pop_front();
-			}
+		else currentFrameTime = getCurrentTimestamp();
+		
+		std::lock_guard lock(inputQueueLock);
+		inputQueueCopy = inputQueue;
+		inputQueue = {};
+	}
+	else { // only copy inputs that happened before the start of the frame
+		#ifdef GEODE_IS_WINDOWS
+		if (linuxNative) linuxCheckInputs();
+		#endif
+
+		std::lock_guard lock(inputQueueLock);
+		while (!inputQueue.empty() && inputQueue.front().time <= currentFrameTime) {
+			inputQueueCopy.push_back(inputQueue.front());
+			inputQueue.pop_front();
 		}
 	}
 
@@ -112,6 +114,7 @@ void buildStepQueue(int stepCount) {
 				stepQueue.emplace_back(Step{ front, std::clamp(inputTime - elapsedTime, SMALLEST_FLOAT, 1.0), false });
 				inputQueueCopy.pop_front();
 				elapsedTime = inputTime;
+				//log::info("Input - t: {} cft: {} lft: {} id: {} dt: {} sd: {}", front.time.QuadPart, currentFrameTime.QuadPart, lastFrameTime.QuadPart, front.time.QuadPart - lastFrameTime.QuadPart, deltaTime.QuadPart, stepDelta.QuadPart);
 			}
 			else break; // no more inputs this step, more later in the frame
 		}
@@ -277,6 +280,11 @@ void pollEventsIdk() {
 	if (!lateCutoff && !linuxNative) {
 		currentFrameTime = getCurrentTimestamp();
 	}
+	#ifdef GEODE_IS_WINDOWS
+	else if (!lateCutoff) {
+		GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime);
+	}
+	#endif
 
 	if (softToggle.load() // CBF disabled
 	#ifdef GEODE_IS_WINDOWS
@@ -293,7 +301,7 @@ void pollEventsIdk() {
 
 		inputQueueCopy = {};
 
-		if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on windows memory leaks are possible
+		if (!linuxNative) { // clearing the queue isnt necessary on Linux since its fixed size anyway, but on Windows memory leaks are possible
 			std::lock_guard lock(inputQueueLock);
 			inputQueue = {};
 		}
@@ -512,11 +520,15 @@ class $modify(PlayerObject) {
 			PlayerObject::updateRotation(rotationDelta);
 
 			if (p2Pos.x && !midStep) {
-				pl->m_player2->m_lastPosition = p2Pos;
+				this->m_lastPosition = p2Pos;
 				p2Pos.setPoint(0.f, 0.f);
 			}
 		}
 		else PlayerObject::updateRotation(t);
+
+		if (actualDelta && pl && !midStep) {
+			pl->m_gameState.m_currentProgress = static_cast<int>(pl->m_gameState.m_levelTime * 240.0);
+		}
 	}
 };
 
@@ -701,7 +713,7 @@ $on_mod(Loaded) {
 			si.cb = sizeof(si);
 			ZeroMemory(&pi, sizeof(pi));
 
-			std::string path = CCFileUtils::get()->fullPathForFilename("linux-input.exe.so"_spr, true);
+			std::string path = CCFileUtils::get()->fullPathForFilename("linux-input.so"_spr, true);
 
 			if (!CreateProcess(path.c_str(), NULL, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
 				log::error("Failed to launch Linux input program: {}", GetLastError());
