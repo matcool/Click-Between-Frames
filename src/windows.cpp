@@ -19,7 +19,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 	PlayerButton inputType;
 	bool inputState;
 	bool player1;
-	
+
 	LPVOID pData;
 	switch (uMsg) {
 	case WM_INPUT: {
@@ -50,7 +50,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 				if (inputState) return 0;
 				else heldInputs.erase(vkey);
 			}
-			
+
 			bool shouldEmplace = true;
 			player1 = true;
 
@@ -100,7 +100,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 			return 0;
 		}
 		break;
-	} 
+	}
 	default:
 		return DefWindowProcA(hwnd, uMsg, wParam, lParam);
 	}
@@ -168,8 +168,8 @@ class $modify(CreatorLayer) {
 				if (static_cast<LinuxInputEvent*>(pBuf)[0].type == 3 && !softToggle.load()) {
 					log::error("Linux input failed");
 					FLAlertLayer* popup = FLAlertLayer::create(
-						"CBF Linux", 
-						"Failed to read input devices.\nOn most distributions, this can be resolved with the following command: <cr>sudo usermod -aG input $USER</c> (reboot afterward; this will make your system slightly less secure).\nIf the issue persists, please contact the mod developer.", 
+						"CBF Linux",
+						"Failed to read input devices.\nOn most distributions, this can be resolved with the following command: <cr>sudo usermod -aG input $USER</c> (reboot afterward; this will make your system slightly less secure).\nIf the issue persists, please contact the mod developer.",
 						"OK"
 					);
 					popup->m_scene = this;
@@ -185,14 +185,14 @@ class $modify(CreatorLayer) {
 			}
 		}
 		return true;
-	} 
+	}
 };
 
 void linuxCheckInputs() {
-    DWORD waitResult = WaitForSingleObject(hMutex, 1);
-    if (waitResult == WAIT_OBJECT_0) {
-        LinuxInputEvent* events = static_cast<LinuxInputEvent*>(pBuf);
-        for (int i = 0; i < BUFFER_SIZE; i++) {
+	DWORD waitResult = WaitForSingleObject(hMutex, 1);
+	if (waitResult == WAIT_OBJECT_0) {
+		LinuxInputEvent* events = static_cast<LinuxInputEvent*>(pBuf);
+		for (int i = 0; i < BUFFER_SIZE; i++) {
 			if (events[i].type == 0) break; // if there are no more events
 
 			InputEvent input;
@@ -218,21 +218,21 @@ void linuxCheckInputs() {
 					else if (inputBinds[p2Left].contains(keyCode)) input.inputType = PlayerButton::Left;
 					else if (inputBinds[p2Right].contains(keyCode)) input.inputType = PlayerButton::Right;
 					else continue;
-            	}
+				}
 			}
 
-            input.inputState = !events[i].value;
+			input.inputState = !events[i].value;
 			input.time = timestampFromLarge(events[i].time);
-            input.isPlayer1 = player1;
-                
-            inputQueueCopy.emplace_back(input);
-        }
+			input.isPlayer1 = player1;
+
+			inputQueueCopy.emplace_back(input);
+		}
 		ZeroMemory(events, sizeof(LinuxInputEvent[BUFFER_SIZE]));
-        ReleaseMutex(hMutex);
-    }
-    else if (waitResult != WAIT_TIMEOUT) {
-        log::error("WaitForSingleObject failed: {}", GetLastError());
-    }
+		ReleaseMutex(hMutex);
+	}
+	else if (waitResult != WAIT_TIMEOUT) {
+		log::error("WaitForSingleObject failed: {}", GetLastError());
+	}
 }
 
 #endif
