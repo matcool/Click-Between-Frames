@@ -18,7 +18,7 @@ TimestampType getCurrentTimestamp() {
 }
 
 @interface EAGLView : NSOpenGLView
-@
+@end
 
 struct TimestampSetter {
     TimestampSetter(TimestampType t) {
