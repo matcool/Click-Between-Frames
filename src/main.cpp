@@ -350,7 +350,7 @@ class $modify(CCScheduler) {
 		
 		CCScheduler::update(dt);
 	}
-}
+};
 #endif
 
 
