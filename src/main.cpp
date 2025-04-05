@@ -320,7 +320,9 @@ class $modify(CCEGLView) {
 		CCEGLView::pollEvents();
 	}
 };
-#else
+#elif defined(GEODE_IS_ANDROID)
+// this could prob just use ccscheduler as well,
+// idk the practical difference
 void (*mainLoop)(CCDirector*);
 void mainLoopHook(CCDirector* self) {
 	pollEventsIdk();
@@ -338,6 +340,15 @@ $execute {
 		);
 	} else {
 		log::error("Failed to hook a very important function! this is bad");
+	}
+}
+#else
+#include <Geode/modify/CCScheduler.hpp>
+class $modify(CCScheduler) {
+	void update(float dt) {
+		pollEventsIdk();
+		
+		CCScheduler::update(dt);
 	}
 }
 #endif
