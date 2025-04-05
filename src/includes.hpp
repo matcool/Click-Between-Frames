@@ -56,6 +56,6 @@ extern bool threadPriority;
 #if defined(GEODE_IS_WINDOWS)
 // some windows only global variables
 #include "windows.hpp"
-#elif defined(GEODE_IS_ANDROID)
+#else
 extern TimestampType pendingInputTimestamp;
 #endif

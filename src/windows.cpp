@@ -5,6 +5,7 @@
 #include <Geode/modify/CreatorLayer.hpp>
 
 TimestampType getCurrentTimestamp() {
+	// TODO: use that file time thing on linux
 	LARGE_INTEGER t;
 	QueryPerformanceCounter(&t);
 	return t.QuadPart;
