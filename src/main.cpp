@@ -154,6 +154,7 @@ Step popStepQueue() {
 send list of keybinds to the input thread
 */
 void updateKeybinds() {
+	#ifndef GEODE_IS_IOS
 	std::array<std::unordered_set<size_t>, 6> binds;
 	std::vector<geode::Ref<keybinds::Bind>> v;
 
@@ -181,6 +182,7 @@ void updateKeybinds() {
 		std::lock_guard lock(keybindsLock);
 		inputBinds = binds;
 	}
+	#endif
 }
 
 /*
