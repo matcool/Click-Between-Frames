@@ -368,9 +368,7 @@ class $modify(GJBaseGameLayer) {
 	}
 
 	// either use the modified delta to calculate the step count, or use the actual delta if physics bypass is enabled
-	float getModifiedDelta(float delta) {
-		float modifiedDelta = GJBaseGameLayer::getModifiedDelta(delta);
-
+	float calculateSteps(float modifiedDelta) {
 		PlayLayer* pl = PlayLayer::get();
 		if (pl) {
 			const float timewarp = pl->m_gameState.m_timeWarp;
@@ -394,6 +392,21 @@ class $modify(GJBaseGameLayer) {
 
 		return modifiedDelta;
 	}
+
+	float getModifiedDelta(float delta) {
+		return calculateSteps(GJBaseGameLayer::getModifiedDelta(delta));
+	}
+
+	#ifdef GEODE_IS_MACOS
+	void update(float delta) {
+		if (this->m_started) {
+			float timewarp = std::max(this->m_gameState.m_timeWarp, 1.0f) / 240.0f;
+			calculateSteps(roundf((this->m_extraDelta + (m_resumeTimer <= 0 ? delta : 0.0)) / timewarp) * timewarp);
+		}
+
+		GJBaseGameLayer::update(delta);
+	}
+	#endif
 };
 
 CCPoint p1Pos = { 0.f, 0.f };
