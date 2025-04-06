@@ -1,4 +1,5 @@
 #include "includes.hpp"
+#include <geode.custom-keybinds/include/Keybinds.hpp>
 
 TimestampType getCurrentTimestamp() {
 	LARGE_INTEGER t;
