@@ -1,13 +1,13 @@
 #include "includes.hpp"
 
-#ifdef GEODE_IS_WINDOWS
-
-#include <Geode/modify/CreatorLayer.hpp>
-
 TimestampType getCurrentTimestamp() {
-	// TODO: use that file time thing on linux
 	LARGE_INTEGER t;
-	QueryPerformanceCounter(&t);
+	if (linuxNative) {
+		// used instead of QPC to make it possible to convert between Linux and Windows timestamps
+		GetSystemTimePreciseAsFileTime((FILETIME*)&t);
+	} else {
+		QueryPerformanceCounter(&t);
+	}
 	return t.QuadPart;
 }
 
@@ -156,9 +156,8 @@ void inputThread() {
 	}
 }
 
-/*
-notify the player if theres an issue with input on Linux
-*/
+// notify the player if theres an issue with input on Linux
+#include <Geode/modify/CreatorLayer.hpp>
 class $modify(CreatorLayer) {
 	bool init() {
 		if (!CreatorLayer::init()) return false;
@@ -236,4 +235,77 @@ void linuxCheckInputs() {
 	}
 }
 
-#endif
+void windowsSetup() {
+	HANDLE gdMutex;
+
+	HMODULE ntdll = GetModuleHandle("ntdll.dll");
+	typedef void (*wine_get_host_version)(const char **sysname, const char **release);
+	wine_get_host_version wghv = (wine_get_host_version)GetProcAddress(ntdll, "wine_get_host_version");
+	if (wghv) { // if this function exists, the user is on Wine
+		const char* sysname;
+		const char* release;
+		wghv(&sysname, &release);
+
+		std::string sys = sysname;
+		log::info("Wine {}", sys);
+
+		if (sys == "Linux") Mod::get()->setSavedValue<bool>("you-must-be-on-linux-to-change-this", true);
+		if (sys == "Linux" && Mod::get()->getSettingValue<bool>("wine-workaround")) { // background raw keyboard input doesn't work in Wine
+			linuxNative = true;
+			log::info("Linux native");
+
+			hSharedMem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(LinuxInputEvent[BUFFER_SIZE]), "LinuxSharedMemory");
+			if (hSharedMem == NULL) {
+				log::error("Failed to create file mapping: {}", GetLastError());
+				return;
+			}
+
+			pBuf = MapViewOfFile(hSharedMem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LinuxInputEvent[BUFFER_SIZE]));
+			if (pBuf == NULL) {
+				log::error("Failed to map view of file: {}", GetLastError());
+				CloseHandle(hSharedMem);
+				return;
+			}
+
+			hMutex = CreateMutex(NULL, FALSE, "CBFLinuxMutex"); // used to gate access to the shared memory buffer for inputs
+			if (hMutex == NULL) {
+				log::error("Failed to create shared memory mutex: {}", GetLastError());
+				CloseHandle(hSharedMem);
+				return;
+			}
+
+			gdMutex = CreateMutex(NULL, TRUE, "CBFWatchdogMutex"); // will be released when gd closes
+			if (gdMutex == NULL) {
+				log::error("Failed to create watchdog mutex: {}", GetLastError());
+				CloseHandle(hMutex);
+				CloseHandle(hSharedMem);
+				return;
+			}
+
+			SECURITY_ATTRIBUTES sa;
+			sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+			sa.bInheritHandle = TRUE;
+			sa.lpSecurityDescriptor = NULL;
+
+			STARTUPINFO si;
+			PROCESS_INFORMATION pi;
+			ZeroMemory(&si, sizeof(si));
+			si.cb = sizeof(si);
+			ZeroMemory(&pi, sizeof(pi));
+
+			std::string path = CCFileUtils::get()->fullPathForFilename("linux-input.so"_spr, true);
+
+			if (!CreateProcess(path.c_str(), NULL, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+				log::error("Failed to launch Linux input program: {}", GetLastError());
+				CloseHandle(hMutex);
+				CloseHandle(gdMutex);
+				CloseHandle(hSharedMem);
+				return;
+			}
+		}
+	}
+
+	if (!linuxNative) {
+		std::thread(inputThread).detach();
+	}
+}

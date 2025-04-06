@@ -27,5 +27,6 @@ inline TimestampType timestampFromLarge(LARGE_INTEGER l) {
 
 constexpr size_t BUFFER_SIZE = 20;
 
+void windowsSetup();
 void linuxCheckInputs();
 void inputThread();

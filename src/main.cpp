@@ -10,8 +10,6 @@
 #include <Geode/modify/CreatorLayer.hpp>
 #include <Geode/modify/GJGameLevel.hpp>
 
-typedef void (*wine_get_host_version)(const char **sysname, const char **release);
-
 constexpr double SMALLEST_FLOAT = std::numeric_limits<float>::min();
 
 constexpr InputEvent EMPTY_INPUT = InputEvent {
@@ -64,13 +62,12 @@ void buildStepQueue(int stepCount) {
 	stepQueue = {}; // shouldnt be necessary, but just in case
 
 	if (lateCutoff) { // copy all inputs in queue, use current time as the frame boundary
+		currentFrameTime = getCurrentTimestamp();
+		#ifdef GEODE_IS_WINDOWS
 		if (linuxNative) {
-			#ifdef GEODE_IS_WINDOWS
-			GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime); // used instead of QPC to make it possible to convert between Linux and Windows timestamps
 			linuxCheckInputs();
-			#endif
 		}
-		else currentFrameTime = getCurrentTimestamp();
+		#endif
 		
 		std::lock_guard lock(inputQueueLock);
 		inputQueueCopy = inputQueue;
@@ -101,9 +98,6 @@ void buildStepQueue(int stepCount) {
 	TimestampType deltaTime = currentFrameTime - lastFrameTime;
 	TimestampType stepDelta = (deltaTime / stepCount) + 1; // the +1 is to prevent dropped inputs caused by integer division
 
-	// std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::app | std::ios_base::out);
-	// file << fmt::format("[buildstepqueue] deltaTime={}  stepDelta={}  currentFrameTime={}  lastFrameTime={}  stepCount={}", deltaTime, stepDelta, currentFrameTime, lastFrameTime, stepCount) << "\n";
-
 	for (int i = 0; i < stepCount; i++) { // for each physics step of the frame
 		double elapsedTime = 0.0;
 		while (!inputQueueCopy.empty()) { // while loop to account for multiple inputs on the same step
@@ -114,7 +108,6 @@ void buildStepQueue(int stepCount) {
 				stepQueue.emplace_back(Step{ front, std::clamp(inputTime - elapsedTime, SMALLEST_FLOAT, 1.0), false });
 				inputQueueCopy.pop_front();
 				elapsedTime = inputTime;
-				//log::info("Input - t: {} cft: {} lft: {} id: {} dt: {} sd: {}", front.time.QuadPart, currentFrameTime.QuadPart, lastFrameTime.QuadPart, front.time.QuadPart - lastFrameTime.QuadPart, deltaTime.QuadPart, stepDelta.QuadPart);
 			}
 			else break; // no more inputs this step, more later in the frame
 		}
@@ -279,14 +272,9 @@ void pollEventsIdk() {
 	PlayLayer* playLayer = PlayLayer::get();
 	CCNode* par;
 
-	if (!lateCutoff && !linuxNative) {
+	if (!lateCutoff) {
 		currentFrameTime = getCurrentTimestamp();
 	}
-	#ifdef GEODE_IS_WINDOWS
-	else if (!lateCutoff) {
-		GetSystemTimePreciseAsFileTime((FILETIME*)&currentFrameTime);
-	}
-	#endif
 
 	if (softToggle.load() // CBF disabled
 	#ifdef GEODE_IS_WINDOWS
@@ -659,76 +647,6 @@ $on_mod(Loaded) {
 	threadPriority = Mod::get()->getSettingValue<bool>("thread-priority");
 
 #ifdef GEODE_IS_WINDOWS
-	HANDLE gdMutex;
-
-	HMODULE ntdll = GetModuleHandle("ntdll.dll");
-	wine_get_host_version wghv = (wine_get_host_version)GetProcAddress(ntdll, "wine_get_host_version");
-	if (wghv) { // if this function exists, the user is on Wine
-		const char* sysname;
-		const char* release;
-		wghv(&sysname, &release);
-
-		std::string sys = sysname;
-		log::info("Wine {}", sys);
-
-		if (sys == "Linux") Mod::get()->setSavedValue<bool>("you-must-be-on-linux-to-change-this", true);
-		if (sys == "Linux" && Mod::get()->getSettingValue<bool>("wine-workaround")) { // background raw keyboard input doesn't work in Wine
-            linuxNative = true;
-			log::info("Linux native");
-
-            hSharedMem = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(LinuxInputEvent[BUFFER_SIZE]), "LinuxSharedMemory");
-			if (hSharedMem == NULL) {
-				log::error("Failed to create file mapping: {}", GetLastError());
-				return;
-			}
-
-			pBuf = MapViewOfFile(hSharedMem, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LinuxInputEvent[BUFFER_SIZE]));
-			if (pBuf == NULL) {
-        		log::error("Failed to map view of file: {}", GetLastError());
-				CloseHandle(hSharedMem);
-        		return;
-    		}
-
-			hMutex = CreateMutex(NULL, FALSE, "CBFLinuxMutex"); // used to gate access to the shared memory buffer for inputs
-			if (hMutex == NULL) {
-				log::error("Failed to create shared memory mutex: {}", GetLastError());
-				CloseHandle(hSharedMem);
-				return;
-			}
-
-			gdMutex = CreateMutex(NULL, TRUE, "CBFWatchdogMutex"); // will be released when gd closes
-			if (gdMutex == NULL) {
-				log::error("Failed to create watchdog mutex: {}", GetLastError());
-				CloseHandle(hMutex);
-				CloseHandle(hSharedMem);
-				return;
-			}
-
-			SECURITY_ATTRIBUTES sa;
-			sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-			sa.bInheritHandle = TRUE;
-			sa.lpSecurityDescriptor = NULL;
-
-			STARTUPINFO si;
-			PROCESS_INFORMATION pi;
-			ZeroMemory(&si, sizeof(si));
-			si.cb = sizeof(si);
-			ZeroMemory(&pi, sizeof(pi));
-
-			std::string path = CCFileUtils::get()->fullPathForFilename("linux-input.so"_spr, true);
-
-			if (!CreateProcess(path.c_str(), NULL, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
-				log::error("Failed to launch Linux input program: {}", GetLastError());
-				CloseHandle(hMutex);
-				CloseHandle(gdMutex);
-				CloseHandle(hSharedMem);
-				return;
-			}
-		}
-	}
-
-	if (!linuxNative) {
-		std::thread(inputThread).detach();
-	}
+	windowsSetup();
 #endif
 }
