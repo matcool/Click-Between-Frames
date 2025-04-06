@@ -1,4 +1,4 @@
-// copied from https://github.com/qimiko/click-on-steps/blob/main/src/android.cpp
+// copied from https://github.com/qimiko/click-on-steps/blob/main/src/android.cpp, with permission
 
 #include <Geode/cocos/platform/android/jni/JniHelper.h>
 #include <time.h>

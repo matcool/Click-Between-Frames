@@ -1,4 +1,4 @@
-// copied from https://github.com/qimiko/click-on-steps/blob/main/src/macos.mm
+// copied from https://github.com/qimiko/click-on-steps/blob/main/src/macos.mm, with permission
 
 #include <Geode/platform/cplatform.h>
 #define CommentType CommentTypeDummy

@@ -3,11 +3,9 @@
 #include <limits>
 
 #include <Geode/modify/PlayLayer.hpp>
-#include <Geode/modify/CCEGLView.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/modify/EndLevelLayer.hpp>
-#include <Geode/modify/CreatorLayer.hpp>
 #include <Geode/modify/GJGameLevel.hpp>
 
 constexpr double SMALLEST_FLOAT = std::numeric_limits<float>::min();
@@ -143,11 +141,12 @@ Step popStepQueue() {
 	return front;
 }
 
+#ifdef GEODE_IS_WINDOWS
+#include <geode.custom-keybinds/include/Keybinds.hpp>
 /*
 send list of keybinds to the input thread
 */
 void updateKeybinds() {
-	#ifndef GEODE_IS_IOS
 	std::array<std::unordered_set<size_t>, 6> binds;
 	std::vector<geode::Ref<keybinds::Bind>> v;
 
@@ -175,8 +174,8 @@ void updateKeybinds() {
 		std::lock_guard lock(keybindsLock);
 		inputBinds = binds;
 	}
-	#endif
 }
+#endif
 
 /*
 "decompiled" version of PlayerObject::resetCollisionLog() since it's inlined in GD 2.2074 on Windows
@@ -186,21 +185,10 @@ void decomp_resetCollisionLog(PlayerObject* p) {
     p->m_collisionLogBottom->removeAllObjects();
     p->m_collisionLogLeft->removeAllObjects();
     p->m_collisionLogRight->removeAllObjects();
-	// this looks wrong
-	p->m_lastCollisionLeft = p->m_lastCollisionBottom;
-	// its probably this instead
-	// p->m_lastCollisionLeft = -1;
-	// p->m_lastCollisionRight = -1;
-
+	p->m_lastCollisionLeft = -1;
+	p->m_lastCollisionRight = -1;
 	p->m_lastCollisionBottom = -1;
 	p->m_lastCollisionTop = -1;
-
-	// (*(CCDictionary**)((char*)p + 0x5b0))->removeAllObjects();
-	// (*(CCDictionary**)((char*)p + 0x5b8))->removeAllObjects();
-	// (*(CCDictionary**)((char*)p + 0x5c0))->removeAllObjects();
-	// (*(CCDictionary**)((char*)p + 0x5c8))->removeAllObjects();
-	// *(unsigned long*)((char*)p + 0x5e0) = *(unsigned long*)((char*)p + 0x5d0);
-	// *(long long*)((char*)p + 0x5d0) = -1;
 }
 
 double averageDelta = 0.0;
@@ -242,13 +230,13 @@ int calculateStepCount(float delta, float timewarp, bool forceVanilla) {
 bool safeMode;
 
 class $modify(PlayLayer) {
+#ifdef GEODE_IS_WINDOWS
 	// update keybinds when you enter a level
 	bool init(GJGameLevel* level, bool useReplay, bool dontCreateObjects) {
 		updateKeybinds();
-		std::ofstream file(Mod::get()->getSaveDir() / "dbg.log", std::ios_base::trunc);
-		file.close();
 		return PlayLayer::init(level, useReplay, dontCreateObjects);
 	}
+#endif
 
 	// disable progress in safe mode
 	void levelComplete() {
@@ -268,7 +256,7 @@ class $modify(PlayLayer) {
 
 bool mouseFix;
 
-void pollEventsIdk() {
+void onFrameStart() {
 	PlayLayer* playLayer = PlayLayer::get();
 	CCNode* par;
 
@@ -311,40 +299,19 @@ void pollEventsIdk() {
 }
 
 #ifdef GEODE_IS_WINDOWS
+#include <Geode/modify/CCEGLView.hpp>
 class $modify(CCEGLView) {
 	void pollEvents() {
-		pollEventsIdk();
+		onFrameStart();
 
 		CCEGLView::pollEvents();
 	}
 };
-#elif defined(GEODE_IS_ANDROID)
-// this could prob just use ccscheduler as well,
-// idk the practical difference
-void (*mainLoop)(CCDirector*);
-void mainLoopHook(CCDirector* self) {
-	pollEventsIdk();
-	mainLoop(self);
-}
-
-$execute {
-	auto handle = dlopen("libcocos2dcpp.so", RTLD_LAZY | RTLD_NOLOAD);
-	mainLoop = reinterpret_cast<decltype(mainLoop)>(dlsym(handle, "_ZN7cocos2d21CCDisplayLinkDirector8mainLoopEv"));
-	if (mainLoop != nullptr) {
-		(void) Mod::get()->hook(
-			reinterpret_cast<void*>(mainLoop),
-			&mainLoopHook,
-			"CCDisplayLinkDirector::mainLoop"
-		);
-	} else {
-		log::error("Failed to hook a very important function! this is bad");
-	}
-}
 #else
 #include <Geode/modify/CCScheduler.hpp>
 class $modify(CCScheduler) {
 	void update(float dt) {
-		pollEventsIdk();
+		onFrameStart();
 		
 		CCScheduler::update(dt);
 	}
@@ -381,10 +348,6 @@ class $modify(GJBaseGameLayer) {
 			}
 			else if (modifiedDelta > 0.0) buildStepQueue(stepCount);
 			else skipUpdate = true;
-
-			if (std::fabs(modifiedDelta) < 0.00001) {
-				log::error("modified delta = {}", modifiedDelta);
-			}
 		}
 		else if (actualDelta) stepCount = calculateStepCount(modifiedDelta, this->m_gameState.m_timeWarp, true); // disable physics bypass outside levels
 
@@ -395,7 +358,8 @@ class $modify(GJBaseGameLayer) {
 		return calculateSteps(GJBaseGameLayer::getModifiedDelta(delta));
 	}
 
-	#ifdef GEODE_IS_MACOS
+#ifdef GEODE_IS_MACOS
+	// getModifiedDelta is inlined, hook update directly instead
 	void update(float delta) {
 		if (this->m_started) {
 			float timewarp = std::max(this->m_gameState.m_timeWarp, 1.0f) / 240.0f;
@@ -404,7 +368,7 @@ class $modify(GJBaseGameLayer) {
 
 		GJBaseGameLayer::update(delta);
 	}
-	#endif
+#endif
 };
 
 CCPoint p1Pos = { 0.f, 0.f };
